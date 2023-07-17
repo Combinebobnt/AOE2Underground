@@ -1,4 +1,4 @@
-/* code by Combinebobnt for AoE2 Underground ranking system */
+// code by Combinebobnt for AoE2 Underground ranking system
 function GETELO(apistring, istg)
 {
   if(istg === undefined)
