@@ -58,7 +58,20 @@ function GETMAXELO(apistring, istg)
   return max;
 }
 
-const ratings = ["F", "E", "D", "C", "B", "A", "S", "S+", "S+", "S++", "S+++", "S++++", "S+++++"];
+const ratings = [
+"F", 
+"E", 
+"D", 
+"C", 
+"B", 
+"A", 
+"S", 
+"S+", 
+"S++", 
+"S+++", 
+"S++++", 
+"S+++++"
+];
 
 function ELOTOTIER(elo, group_size=200, c_tier_rating=1500)
 {
