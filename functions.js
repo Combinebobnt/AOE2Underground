@@ -1,9 +1,88 @@
 // code by Combinebobnt for AoE2 Underground ranking system
 
 /**
+ * Import player aoe2.net API string
+ * @param {number} player_id - Player id
+ * @param {boolean} is_tg - Is teamgame
+ * @return {string} - aoe2.net API data
+ */
+function GET_API_DATA(player_id, is_tg)
+{
+  if(is_tg === undefined)
+  {
+    is_tg = 0;
+  }
+  let url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=3&count=200&profile_id=" + player_id
+  if(is_tg)
+  {
+    url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=4&count=200&profile_id=" + player_id
+  }
+
+  let response = UrlFetchApp.fetch(url);
+  let response_data = response.getBlob().getDataAsString();
+  return response_data;
+}
+
+/**
+ * Update aoe2.net API data for all players in "Automated Ratings"
+ */
+function UPDATE_PLAYER_API_DATA()
+{
+  Logger.log("UPDATE_PLAYER_API_DATA()");
+  ratings_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Automated Ratings");
+  ratings_sheet_range = ratings_sheet.getRange("$A2:T");
+  ratings_sheet_range_values = ratings_sheet_range.getValues();
+
+  const column_player_id = 1;
+  const column_api_1v1 = 17;
+  const column_api_tg = 18;
+  let requests_1v1 = [];
+  let requests_tg = [];
+
+  Logger.log("Generating API requests...");
+  for(let r = 0; r < ratings_sheet_range.getNumRows(); r++)
+  {
+    // stop once at blank row
+    if(ratings_sheet_range_values[r][column_player_id] == "")
+    {
+      break;
+    }
+
+    let player_id = ratings_sheet_range_values[r][column_player_id];
+    requests_1v1.push("https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=3&count=200&profile_id=" + player_id);
+    requests_tg.push("https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=4&count=200&profile_id=" + player_id);
+  }
+
+  if(requests_1v1.length == 0)
+  {
+    Logger.log("No API data collected.");
+    return;
+  }
+
+  let response_1v1 = UrlFetchApp.fetchAll(requests_1v1);
+  let response_tg = UrlFetchApp.fetchAll(requests_tg);
+
+  if(response_1v1.length != response_tg.length)
+  {
+    throw new Error("1v1 and tg response length difference.");
+  }
+  Logger.log("Total requests made = " + requests_1v1.length);
+
+  let responses_combined = [];
+  for(let x = 0; x < requests_1v1.length; x++)
+  {
+    responses_combined.push([response_1v1[x], response_tg[x]]);
+  }
+
+  Logger.log("Updating player API data...");
+  let cells_to_change = ratings_sheet.getRange("R2C" + column_api_1v1 + ":R" + (2 + response_1v1.length - 1) + "C" + column_api_tg);
+  cells_to_change.setValues(responses_combined);
+}
+
+/**
  * Gets player elo from aoe2.net API string
  * @param {string} apistring - aoe2.net match data API string
- * @param {number} is_tg - Is teamgame
+ * @param {boolean} is_tg - Is teamgame
  * @return {number} - Player elo, 0 if error
  */
 function GETELO(apistring, is_tg)
@@ -215,7 +294,7 @@ function RECORD_TEAM_SIGN_UP()
   signup_sheet_range = signup_sheet.getRange("$A2:L");
   signup_sheet_values = signup_sheet_range.getValues();
 
-  var tier_columns = [];
+  let tier_columns = [];
   signup_sheet_headers = signup_sheet.getRange("$A$1:$M$1");
   signup_sheet_headers_values = signup_sheet_headers.getValues();
   // iterate each column header to find the tier columns
@@ -269,7 +348,7 @@ function RECORD_SUB_SIGN_UP()
   signup_sheet_range = signup_sheet.getRange("$A2:E");
   signup_sheet_values = signup_sheet_range.getValues();
 
-  var tier_columns = [];
+  let tier_columns = [];
   signup_sheet_headers = signup_sheet.getRange("$A$1:$E$1");
   signup_sheet_headers_values = signup_sheet_headers.getValues();
   // iterate each column header to find the tier columns
