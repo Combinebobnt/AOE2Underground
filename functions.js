@@ -1,6 +1,27 @@
 // code by Combinebobnt for AoE2 Underground ranking system
 
 /**
+ * Find column number of header
+ * @param {array} row_values - array (the row) of values to search
+ * @param {string} header_name - header name to search for
+ * @return {string} - column number of matching header, null if not found
+ */
+function FIND_COLUMN_HEADER(row_values, header_name)
+{
+  // iterate each column header
+  for(let c = 0; c < row_values.length; c++)
+  {
+    const re_search = new RegExp(header_name, "i");
+    match = signup_sheet_headers_values[c].match(re_search);
+    if(match !== null)
+    {
+      return c;
+    }
+  }
+  return null;
+}
+
+/**
  * Import player aoe2.net API string
  * @param {number} player_id - Player id
  * @param {boolean} is_tg - Is teamgame
@@ -36,11 +57,13 @@ function UPDATE_PLAYER_API_DATA()
   const column_player_id = 1;
   const column_api_1v1 = 17;
   const column_api_tg = 18;
+  const start_row = 0;
+
   let requests_1v1 = [];
   let requests_tg = [];
 
   Logger.log("Generating API requests...");
-  for(let r = 0; r < ratings_sheet_range.getNumRows(); r++)
+  for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++)
   {
     // stop once at blank row
     if(ratings_sheet_range_values[r][column_player_id] == "")
@@ -59,10 +82,20 @@ function UPDATE_PLAYER_API_DATA()
     return;
   }
 
-  let response_1v1 = UrlFetchApp.fetchAll(requests_1v1);
-  let response_tg = UrlFetchApp.fetchAll(requests_tg);
+  Logger.log("Processing requests...");
+  let responses_1v1 = [];
+  let responses_tg = [];
+  for(let x = 0; x < requests_1v1.length; x++)
+  {
+    if(x % 5 == 0)
+    {
+      Logger.log("Processing request = " + x + "...");
+    }
+    responses_1v1.push(UrlFetchApp.fetch(requests_1v1[x]));
+    responses_tg.push(UrlFetchApp.fetch(requests_tg[x]));
+  }
 
-  if(response_1v1.length != response_tg.length)
+  if(responses_1v1.length != responses_tg.length)
   {
     throw new Error("1v1 and tg response length difference.");
   }
@@ -71,11 +104,11 @@ function UPDATE_PLAYER_API_DATA()
   let responses_combined = [];
   for(let x = 0; x < requests_1v1.length; x++)
   {
-    responses_combined.push([response_1v1[x], response_tg[x]]);
+    responses_combined.push([responses_1v1[x], responses_tg[x]]);
   }
 
   Logger.log("Updating player API data...");
-  let cells_to_change = ratings_sheet.getRange("R2C" + column_api_1v1 + ":R" + (2 + response_1v1.length - 1) + "C" + column_api_tg);
+  let cells_to_change = ratings_sheet.getRange("R" + (start_row + 2) + "C" + column_api_1v1 + ":R" + (start_row + 2 + responses_1v1.length - 1) + "C" + column_api_tg);
   cells_to_change.setValues(responses_combined);
 }
 
@@ -361,6 +394,12 @@ function RECORD_SUB_SIGN_UP()
       tier_columns.push(c);
     }
   }
+  // TODO
+  // let column_number = FIND_COLUMN_HEADER(signup_sheet_headers_values, "Tier");
+  // if(column_number === null)
+  // {
+  //   throw new Error("");
+  // }
 
   // iterate over each row in sign ups
   for(let r = 0; r < signup_sheet_range.getNumRows(); r++)
@@ -397,4 +436,46 @@ function FORM_UPDATES()
   RECORD_TEAM_SIGN_UP()
   RECORD_INDIVIDUAL_SIGN_UP()
   RECORD_SUB_SIGN_UP()
+  UPDATE_PLAYER_API_DATA()
+}
+
+/**
+ * Calculate season points for player
+ * @param {number} game_wins - Games won
+ * @param {number} mvps - MVPs received
+ * @param {number} result - Tournament result (1, 2, 3, ...)
+ * @return {number} - Season points
+ */
+function CALCULATE_SEASON_POINTS(game_wins, mvps, result)
+{
+  if(game_wins === undefined || game_wins === "")
+  {
+    game_wins = 0;
+  }
+  if(mvps === undefined || mvps === "")
+  {
+    mvps = 0;
+  }
+  if(result === undefined || result === "")
+  {
+    result = 0;
+  }
+
+  let season_points = 0;
+  season_points += game_wins * 2;
+  season_points += mvps;
+  if(result == 1)
+  {
+    season_points += 8;
+  }
+  else if(result == 2)
+  {
+    season_points += 5;
+  }
+  else if(result == 3 || result == 4)
+  {
+    season_points += 2;
+  }
+
+  return season_points;
 }
