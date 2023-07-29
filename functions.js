@@ -12,7 +12,7 @@ function FIND_COLUMN_HEADER(row_values, header_name)
   for(let c = 0; c < row_values.length; c++)
   {
     const re_search = new RegExp(header_name, "i");
-    match = signup_sheet_headers_values[c].match(re_search);
+    match = row_values[c].match(re_search);
     if(match !== null)
     {
       return c;
@@ -33,10 +33,10 @@ function GET_API_DATA(player_id, is_tg)
   {
     is_tg = 0;
   }
-  let url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=3&count=200&profile_id=" + player_id
+  let url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=3&count=200&profile_id=" + player_id;
   if(is_tg)
   {
-    url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=4&count=200&profile_id=" + player_id
+    url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=4&count=200&profile_id=" + player_id;
   }
 
   let response = UrlFetchApp.fetch(url);
@@ -87,7 +87,7 @@ function UPDATE_PLAYER_API_DATA()
   let responses_tg = [];
   for(let x = 0; x < requests_1v1.length; x++)
   {
-    if(x % 5 == 0)
+    if(x % 10 == 0)
     {
       Logger.log("Processing request = " + x + "...");
     }
@@ -241,7 +241,7 @@ function ADD_TO_DATA_ENTRY(name, id)
   data_entry_sheet_range = data_entry_sheet.getRange("$A2:B");
   data_entry_sheet_values = data_entry_sheet_range.getValues();
   let add_new = true;
-  let last_row = 0
+  let last_row = 0;
   // iterate over each row in data entry
   for(let r = 0; r < data_entry_sheet_range.getNumRows(); r++)
   {
@@ -317,7 +317,7 @@ function RECORD_INDIVIDUAL_SIGN_UP()
 /**
  * Record team sign up and lock in tier for each player. 
  */
-function RECORD_TEAM_SIGN_UP()
+function RECORD_TEAM_SIGN_UP(record_tiers=false)
 {
   player_info_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Player Info");
   player_info_sheet_range = player_info_sheet.getRange("$A2:L");
@@ -359,9 +359,12 @@ function RECORD_TEAM_SIGN_UP()
         player_id = signup_sheet_values[r][tier_columns[p] - 1];
         // also add player to data entry list
         ADD_TO_DATA_ENTRY(player_name, player_id);
-        cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1));
-        cell_to_change.setValue(GET_PLAYER_TIER(player_id));
-        Logger.log("RECORD_TEAM_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
+        if(record_tiers)
+        {
+          cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1));
+          cell_to_change.setValue(GET_PLAYER_TIER(player_id));
+          Logger.log("RECORD_TEAM_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
+        }
         break;
       }
     }
@@ -371,7 +374,7 @@ function RECORD_TEAM_SIGN_UP()
 /**
  * Record substitute player sign up and lock in their tier. 
  */
-function RECORD_SUB_SIGN_UP()
+function RECORD_SUB_SIGN_UP(record_tiers=false)
 {
   player_info_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Player Info");
   player_info_sheet_range = player_info_sheet.getRange("$A2:L");
@@ -384,22 +387,12 @@ function RECORD_SUB_SIGN_UP()
   let tier_columns = [];
   signup_sheet_headers = signup_sheet.getRange("$A$1:$E$1");
   signup_sheet_headers_values = signup_sheet_headers.getValues();
-  // iterate each column header to find the tier columns
-  for(let c = 0; c < signup_sheet_range.getNumColumns(); c++)
+  let column_number = FIND_COLUMN_HEADER(signup_sheet_headers_values[0], "Tier");
+  if(column_number === null)
   {
-    const re_tier = /Tier/i;
-    match = signup_sheet_headers_values[0][c].match(re_tier);
-    if(match !== null)
-    {
-      tier_columns.push(c);
-    }
+    throw new Error("Sub Tier column not found.");
   }
-  // TODO
-  // let column_number = FIND_COLUMN_HEADER(signup_sheet_headers_values, "Tier");
-  // if(column_number === null)
-  // {
-  //   throw new Error("");
-  // }
+  tier_columns.push(column_number);
 
   // iterate over each row in sign ups
   for(let r = 0; r < signup_sheet_range.getNumRows(); r++)
@@ -419,9 +412,12 @@ function RECORD_SUB_SIGN_UP()
         player_id = signup_sheet_values[r][tier_columns[p] - 1];
         // also add player to data entry list
         ADD_TO_DATA_ENTRY(player_name, player_id);
-        cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1));
-        cell_to_change.setValue(GET_PLAYER_TIER(player_id));
-        Logger.log("RECORD_SUB_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
+        if(record_tiers)
+        {
+          cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1));
+          cell_to_change.setValue(GET_PLAYER_TIER(player_id));
+          Logger.log("RECORD_SUB_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
+        }
         break;
       }
     }
@@ -433,10 +429,15 @@ function RECORD_SUB_SIGN_UP()
  */
 function FORM_UPDATES()
 {
-  RECORD_TEAM_SIGN_UP()
   RECORD_INDIVIDUAL_SIGN_UP()
   RECORD_SUB_SIGN_UP()
+  RECORD_TEAM_SIGN_UP()
   UPDATE_PLAYER_API_DATA()
+  // Allow some time for tiers to get calculated
+  Utilities.sleep(10 * 1000);
+  // log player tiers after api data fetched
+  RECORD_SUB_SIGN_UP(true)
+  RECORD_TEAM_SIGN_UP(true)
 }
 
 /**
