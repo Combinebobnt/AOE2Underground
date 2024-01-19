@@ -32,8 +32,8 @@ function UPDATE_PLAYER_API_DATA()
   ratings_sheet_range_values = ratings_sheet_range.getValues();
 
   const column_player_id = 1;
-  const column_mmr_1v1 = 5;
-  const column_last = column_mmr_1v1 + 5;
+  const column_steam_name = 4;
+  const column_last = column_steam_name + 6;
   const start_row = 0;
 
   let ids_to_request = [];
@@ -58,6 +58,7 @@ function UPDATE_PLAYER_API_DATA()
     request += "%22" + String(player_id) + "%22,"; // trailing comma works
     ids_to_request.push(player_id);
     player_info[player_id] = {
+      "alias": "",
       "1v1_games": 0,
       "1v1_rating": 0,
       "1v1_rating_max": 0,
@@ -103,9 +104,11 @@ function UPDATE_PLAYER_API_DATA()
 
     let stat_id_to_profile_id = {};
 
-    // record api stat id for player; needed to get leaderboard stats
     parsed_json.statGroups.forEach(function (group, index) {
+      // record api stat id; needed to get leaderboard stats
       stat_id_to_profile_id[group.id] = group.members[0].profile_id;
+      // record player alias (steam name)
+      player_info[group.members[0].profile_id]["alias"] = group.members[0].alias;
     });
 
     // get leaderboard stats for each player
@@ -143,6 +146,7 @@ function UPDATE_PLAYER_API_DATA()
     });
   });
 
+  let data_to_write = [];
   for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++)
   {
     // stop once at blank row
@@ -151,26 +155,22 @@ function UPDATE_PLAYER_API_DATA()
       break;
     }
 
-    if(r % 10 == 0)
-    {
-      Logger.log("Updating player data row = " + r + "...");
-    }
-
     let player_id = ratings_sheet_range_values[r][column_player_id];
     if(player_info[player_id] != undefined)
     {
-      let cells_to_change = ratings_sheet.getRange("R" + (r + 2) + "C" + column_mmr_1v1 + ":R" + (r + 2) + "C" + column_last);
-      let mmrs = [[
+      data_to_write.push([
+        player_info[player_id]["alias"],
         player_info[player_id]["1v1_rating"], 
         player_info[player_id]["1v1_rating_max"], 
         player_info[player_id]["tg_rating"], 
         player_info[player_id]["tg_rating_max"], 
         player_info[player_id]["1v1_games"], 
         player_info[player_id]["tg_games"], 
-      ]];
-      cells_to_change.setValues(mmrs);
+      ])
     }
   }
+  let cells_to_change = ratings_sheet.getRange("R" + (start_row + 2) + "C" + column_steam_name + ":R" + (start_row + 2 + total_count - 1) + "C" + column_last);
+  cells_to_change.setValues(data_to_write);
 }
 
 /**
