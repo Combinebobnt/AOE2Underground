@@ -22,30 +22,7 @@ function FIND_COLUMN_HEADER(row_values, header_name)
 }
 
 /**
- * Import player aoe2.net API string
- * @param {number} player_id - Player id
- * @param {boolean} is_tg - Is teamgame
- * @return {string} - aoe2.net API data
- */
-function GET_API_DATA(player_id, is_tg)
-{
-  if(is_tg === undefined)
-  {
-    is_tg = 0;
-  }
-  let url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=3&count=200&profile_id=" + player_id;
-  if(is_tg)
-  {
-    url = "https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=4&count=200&profile_id=" + player_id;
-  }
-
-  let response = UrlFetchApp.fetch(url);
-  let response_data = response.getBlob().getDataAsString();
-  return response_data;
-}
-
-/**
- * Update aoe2.net API data for all players in "Automated Ratings"
+ * Update aoe2 API data for all players in "Automated Ratings"
  */
 function UPDATE_PLAYER_API_DATA()
 {
@@ -55,14 +32,19 @@ function UPDATE_PLAYER_API_DATA()
   ratings_sheet_range_values = ratings_sheet_range.getValues();
 
   const column_player_id = 1;
-  const column_api_1v1 = 17;
-  const column_api_tg = 18;
+  const column_mmr_1v1 = 5;
+  const column_last = column_mmr_1v1 + 5;
   const start_row = 0;
 
-  let requests_1v1 = [];
-  let requests_tg = [];
+  let ids_to_request = [];
+  let player_info = {};
+  const request_base = "https://aoe-api.reliclink.com/community/leaderboard/GetPersonalStat?title=age2&profile_ids=[";
+  let request = request_base;
+  let requests = [];
 
   Logger.log("Generating API requests...");
+  let count = 0;
+  let total_count = 0;
   for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++)
   {
     // stop once at blank row
@@ -72,44 +54,123 @@ function UPDATE_PLAYER_API_DATA()
     }
 
     let player_id = ratings_sheet_range_values[r][column_player_id];
-    requests_1v1.push("https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=3&count=200&profile_id=" + player_id);
-    requests_tg.push("https://aoe2.net/api/player/ratinghistory?game=aoe2de&leaderboard_id=4&count=200&profile_id=" + player_id);
+
+    request += "%22" + String(player_id) + "%22,"; // trailing comma works
+    ids_to_request.push(player_id);
+    player_info[player_id] = {
+      "1v1_games": 0,
+      "1v1_rating": 0,
+      "1v1_rating_max": 0,
+      "tg_games": 0,
+      "tg_rating": 0,
+      "tg_rating_max": 0,
+    };
+    count += 1;
+    total_count += 1;
+    // split requests in groups of 100 to not exceed URL length limit
+    if(count >= 100)
+    {
+      count = 0;
+      request += "]";
+      requests.push(request);
+      request = request_base;
+    }
+  }
+  if(count > 0)
+  {
+    count = 0;
+    request += "]";
+    requests.push(request);
   }
 
-  if(requests_1v1.length == 0)
+  if(ids_to_request.length == 0)
   {
     Logger.log("No API data collected.");
     return;
   }
 
   Logger.log("Processing requests...");
-  let responses_1v1 = [];
-  let responses_tg = [];
-  for(let x = 0; x < requests_1v1.length; x++)
-  {
-    if(x % 10 == 0)
-    {
-      Logger.log("Processing request = " + x + "...");
-    }
-    responses_1v1.push(UrlFetchApp.fetch(requests_1v1[x]));
-    responses_tg.push(UrlFetchApp.fetch(requests_tg[x]));
-  }
-
-  if(responses_1v1.length != responses_tg.length)
-  {
-    throw new Error("1v1 and tg response length difference.");
-  }
-  Logger.log("Total requests made = " + requests_1v1.length);
-
-  let responses_combined = [];
-  for(let x = 0; x < requests_1v1.length; x++)
-  {
-    responses_combined.push([responses_1v1[x], responses_tg[x]]);
-  }
+  let responses = [];
+  requests.forEach(function (request, index) {
+    responses.push(UrlFetchApp.fetch(request));
+  });
+  Logger.log("Total players requested = " + ids_to_request.length);
 
   Logger.log("Updating player API data...");
-  let cells_to_change = ratings_sheet.getRange("R" + (start_row + 2) + "C" + column_api_1v1 + ":R" + (start_row + 2 + responses_1v1.length - 1) + "C" + column_api_tg);
-  cells_to_change.setValues(responses_combined);
+
+  responses.forEach(function (response, index) {
+    const parsed_json = JSON.parse(response);
+
+    let stat_id_to_profile_id = {};
+
+    // record api stat id for player; needed to get leaderboard stats
+    parsed_json.statGroups.forEach(function (group, index) {
+      stat_id_to_profile_id[group.id] = group.members[0].profile_id;
+    });
+
+    // get leaderboard stats for each player
+    leaderboards_filtered = parsed_json.leaderboardStats.filter(group => group.leaderboard_id === 3 || group.leaderboard_id === 4);
+    leaderboards_filtered.forEach(function (group, index) {
+      let leaderboard_id = group.leaderboard_id;
+      let stat_id = group.statgroup_id;
+      let profile_id = stat_id_to_profile_id[stat_id];
+      if(leaderboard_id === 3) // 1v1 rm
+      {
+        player_info[profile_id]["1v1_games"] = group.wins + group.losses;
+        player_info[profile_id]["1v1_rating"] = group.rating;
+        if(group.highestrating < group.rating)
+        {
+          player_info[profile_id]["1v1_rating_max"] = group.rating;
+        }
+        else
+        {
+          player_info[profile_id]["1v1_rating_max"] = group.highestrating;
+        }
+      }
+      else if(leaderboard_id === 4) // tg rm
+      {
+        player_info[profile_id]["tg_games"] = group.wins + group.losses;
+        player_info[profile_id]["tg_rating"] = group.rating;
+        if(group.highestrating < group.rating)
+        {
+          player_info[profile_id]["tg_rating_max"] = group.rating;
+        }
+        else
+        {
+          player_info[profile_id]["tg_rating_max"] = group.highestrating;
+        }
+      }
+    });
+  });
+
+  for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++)
+  {
+    // stop once at blank row
+    if(ratings_sheet_range_values[r][column_player_id] == "")
+    {
+      break;
+    }
+
+    if(r % 10 == 0)
+    {
+      Logger.log("Updating player data row = " + r + "...");
+    }
+
+    let player_id = ratings_sheet_range_values[r][column_player_id];
+    if(player_info[player_id] != undefined)
+    {
+      let cells_to_change = ratings_sheet.getRange("R" + (r + 2) + "C" + column_mmr_1v1 + ":R" + (r + 2) + "C" + column_last);
+      let mmrs = [[
+        player_info[player_id]["1v1_rating"], 
+        player_info[player_id]["1v1_rating_max"], 
+        player_info[player_id]["tg_rating"], 
+        player_info[player_id]["tg_rating_max"], 
+        player_info[player_id]["1v1_games"], 
+        player_info[player_id]["tg_games"], 
+      ]];
+      cells_to_change.setValues(mmrs);
+    }
+  }
 }
 
 /**
@@ -363,9 +424,8 @@ function RECORD_TEAM_SIGN_UP(record_tiers=false)
         {
           cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1));
           cell_to_change.setValue(GET_PLAYER_TIER(player_id));
-          Logger.log("RECORD_TEAM_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
+          Logger.log("RECORD_TEAM_SIGN_UP() change: signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
         }
-        break;
       }
     }
   }
@@ -418,7 +478,6 @@ function RECORD_SUB_SIGN_UP(record_tiers=false)
           cell_to_change.setValue(GET_PLAYER_TIER(player_id));
           Logger.log("RECORD_SUB_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
         }
-        break;
       }
     }
   }
