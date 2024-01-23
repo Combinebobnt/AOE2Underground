@@ -1,10 +1,24 @@
 // code by Combinebobnt for AoE2 Underground ranking system
 
 /**
+ * Convert alphabetical letter to a number
+ * @param {string} letter - letter of alphabet
+ * @return {number} - number of the letter ('a' == 1)
+ */
+function LETTER_TO_INT(letter)
+{
+  if(letter === undefined || letter.length != 1)
+  {
+    return null;
+  }
+  return parseInt(letter, 36) - 9;
+}
+
+/**
  * Find column number of header
  * @param {array} row_values - array (the row) of values to search
  * @param {string} header_name - header name to search for
- * @return {string} - column number of matching header, null if not found
+ * @return {number} - column number of matching header, null if not found
  */
 function FIND_COLUMN_HEADER(row_values, header_name)
 {
@@ -22,18 +36,34 @@ function FIND_COLUMN_HEADER(row_values, header_name)
 }
 
 /**
+ * Call UPDATE_PLAYER_API_DATA() one at a time
+ */
+function UPDATE_PLAYER_API_DATA_MANUAL_BUTTON()
+{
+  let cache = CacheService.getUserCache();
+  let cached = cache.get("already_called");
+  if(cached == "YES")
+  {
+    Browser.msgBox('Wait 30 sec between manual player data refreshes.');
+    return;
+  }
+  cache.put('already_called', 'YES', 30); // 30 sec cooldown
+  UPDATE_PLAYER_API_DATA();
+}
+
+/**
  * Update aoe2 API data for all players in "Automated Ratings"
  */
 function UPDATE_PLAYER_API_DATA()
 {
-  Logger.log("UPDATE_PLAYER_API_DATA()");
+  Logger.log("UPDATE_PLAYER_API_DATA() enter");
   ratings_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Automated Ratings");
   ratings_sheet_range = ratings_sheet.getRange("$A2:T");
   ratings_sheet_range_values = ratings_sheet_range.getValues();
 
-  const column_player_id = 1;
-  const column_steam_name = 4;
-  const column_last = column_steam_name + 6;
+  const column_player_id_0base = LETTER_TO_INT('B') - 1;
+  const column_steam_name = LETTER_TO_INT('D');
+  const column_last = LETTER_TO_INT('J');
   const start_row = 0;
 
   let ids_to_request = [];
@@ -48,12 +78,12 @@ function UPDATE_PLAYER_API_DATA()
   for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++)
   {
     // stop once at blank row
-    if(ratings_sheet_range_values[r][column_player_id] == "")
+    if(ratings_sheet_range_values[r][column_player_id_0base] == "")
     {
       break;
     }
 
-    let player_id = ratings_sheet_range_values[r][column_player_id];
+    let player_id = ratings_sheet_range_values[r][column_player_id_0base];
 
     request += "%22" + String(player_id) + "%22,"; // trailing comma works
     ids_to_request.push(player_id);
@@ -150,12 +180,12 @@ function UPDATE_PLAYER_API_DATA()
   for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++)
   {
     // stop once at blank row
-    if(ratings_sheet_range_values[r][column_player_id] == "")
+    if(ratings_sheet_range_values[r][column_player_id_0base] == "")
     {
       break;
     }
 
-    let player_id = ratings_sheet_range_values[r][column_player_id];
+    let player_id = ratings_sheet_range_values[r][column_player_id_0base];
     if(player_info[player_id] != undefined)
     {
       data_to_write.push([
@@ -171,74 +201,6 @@ function UPDATE_PLAYER_API_DATA()
   }
   let cells_to_change = ratings_sheet.getRange("R" + (start_row + 2) + "C" + column_steam_name + ":R" + (start_row + 2 + total_count - 1) + "C" + column_last);
   cells_to_change.setValues(data_to_write);
-}
-
-/**
- * Gets player elo from aoe2.net API string
- * @param {string} apistring - aoe2.net match data API string
- * @param {boolean} is_tg - Is teamgame
- * @return {number} - Player elo, 0 if error
- */
-function GETELO(apistring, is_tg)
-{
-  if(is_tg === undefined)
-  {
-    is_tg = 0;
-  }
-  if(is_tg)
-  {
-    // remove any rating entries before the teamgame elo adjustment
-    const re_adjust = /"[\w\d":,\-]*timestamp":(16[0123456]|166[0123])\d+.*/g;
-    apistring = apistring.replace(re_adjust, '');
-  }
-
-  // extract all MMRs from the API text
-  const re_ratings = /(?<="rating":)\d+/g;
-  try
-  {
-    elo = Number(apistring.match(re_ratings)[0]);
-  }
-  catch(TypeError)
-  {
-    elo = 0;
-  }
-  return elo;
-}
-
-/**
- * Gets player max elo from aoe2.net API string
- * @param {string} apistring - aoe2.net match data API string
- * @param {number} is_tg - Is teamgame
- * @return {number} - Player max elo, 0 if error
- */
-function GETMAXELO(apistring, is_tg)
-{
-  if(is_tg === undefined)
-  {
-    is_tg = 0;
-  }
-  if(is_tg)
-  {
-    // remove any rating entries before the teamgame elo adjustment
-    const re_adjust = /"[\w\d":,\-]*timestamp":(16[0123456]|166[0123])\d+.*/g;
-    apistring = apistring.replace(re_adjust, '');
-  }
-
-  // extract all MMRs from the API text
-  const re_ratings = /(?<="rating":)\d+/g;
-  const array = [...apistring.matchAll(re_ratings)];
-  max = 0;
-
-  // find the biggest MMRs (max)
-  for (let i = 0; i < array.length; i++)
-  {
-      mmr = Number(array[i][0]);
-      if(mmr > max)
-      {
-        max = mmr;
-      }
-  }
-  return max;
 }
 
 const ratings = [
@@ -277,43 +239,66 @@ function ELOTOTIER(elo, group_size=200, c_tier_rating=1500)
 }
 
 /**
- * Converts tier letter to numeric value
- * @param {string} tier_letter - Tier letter
- * @return {number} - Tier numeric value
+ * Get tier for player id
+ * @param {number} player_id - Player aoe2.net id
+ * @return {string} - Tier letter
  */
-function TIERNUM(tier_letter)
+function GET_PLAYER_TIER(player_id)
 {
-  let retval = ratings.indexOf(tier_letter);
-  if(retval < 0 || retval > ratings.length)
+  player_info_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Player Info Extra");
+  player_info_sheet_range = player_info_sheet.getRange("$A2:J");
+  player_info_sheet_values = player_info_sheet_range.getValues();
+
+  const player_id_column_0base = LETTER_TO_INT('B') - 1;
+  const player_tier_column_0base = LETTER_TO_INT('J') - 1;
+  for(let x = 0; x < player_info_sheet_range.getNumRows(); x++)
   {
-    retval = "";
+    if(player_info_sheet_values[x][player_id_column_0base] == player_id)
+    {
+      return player_info_sheet_values[x][player_tier_column_0base];
+    }
   }
-  return retval;
+  return "";
 }
 
 /**
  * Adds player/id to "Data Entry" sheet
  * @param {string} name - Player discord name
  * @param {number} id - Player aoe2.net id
+ * @param {string} looking_for_team - Player looking for team
+ * @param {string} preferred_position - Player preferred position
+ * @param {string} region - Player region
  */
-function ADD_TO_DATA_ENTRY(name, id)
+function ADD_TO_DATA_ENTRY(name, id, looking_for_team="", preferred_position="", region="")
 {
+  const looking_for_team_col_letter = "$C";
+  const looking_for_team_col_base0 = LETTER_TO_INT('C') - 1;
+  const preferred_position_col_letter = "$J";
+  const preferred_position_col_base0 = LETTER_TO_INT('J') - 1;
+  const region_col_letter = "$K";
+  const region_col_base0 = LETTER_TO_INT('K') - 1;
+
   data_entry_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data Entry");
-  data_entry_sheet_range = data_entry_sheet.getRange("$A2:B");
+  data_entry_sheet_range = data_entry_sheet.getRange("$A$2:" + region_col_letter);
   data_entry_sheet_values = data_entry_sheet_range.getValues();
+
   let add_new = true;
   let last_row = 0;
+  let row_to_edit = 0;
+
   // iterate over each row in data entry
   for(let r = 0; r < data_entry_sheet_range.getNumRows(); r++)
   {
     if(id == data_entry_sheet_values[r][1])
     {
       add_new = false;
+      row_to_edit = r;
       break;
     }
     if(data_entry_sheet_values[r][1] == "")
     {
       last_row = r;
+      row_to_edit = last_row;
       break;
     }
   }
@@ -322,42 +307,54 @@ function ADD_TO_DATA_ENTRY(name, id)
     data_entry_sheet_first_row = data_entry_sheet.getRange("$A" + (last_row + 3) + ":B" + (last_row + 3));
     data_entry_sheet_first_row.insertCells(SpreadsheetApp.Dimension.ROWS);
     // +2 instead of +3 since this is starting at index 1 instead of 0 (array)
-    data_entry_sheet.getRange("$A" + (last_row + 2)).setValue(name);
-    data_entry_sheet.getRange("$B" + (last_row + 2)).setValue(id);
+    data_entry_sheet.getRange("$A" + (row_to_edit + 2)).setValue(name);
+    data_entry_sheet.getRange("$B" + (row_to_edit + 2)).setValue(id);
   }
-}
-
-/**
- * Get tier for player id
- * @param {number} player_id - Player aoe2.net id
- * @return {string} - Tier letter
- */
-function GET_PLAYER_TIER(player_id)
-{
-  player_info_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Player Info");
-  player_info_sheet_range = player_info_sheet.getRange("$A2:L");
-  player_info_sheet_values = player_info_sheet_range.getValues();
-
-  for(let x = 0; x < player_info_sheet_range.getNumRows(); x++)
+  // only update values if they changed on the sign up
+  if(looking_for_team != "No" && looking_for_team != data_entry_sheet_values[row_to_edit][looking_for_team_col_base0])
   {
-    const player_id_column = 1;
-    const player_tier_column = 9;
-    if(player_info_sheet_values[x][player_id_column] == player_id)
-    {
-      return player_info_sheet_values[x][player_tier_column];
-    }
+    data_entry_sheet.getRange(looking_for_team_col_letter + (row_to_edit + 2)).setValue(looking_for_team);
   }
-  return "";
+  if(preferred_position != data_entry_sheet_values[row_to_edit][preferred_position_col_base0])
+  {
+    data_entry_sheet.getRange(preferred_position_col_letter + (row_to_edit + 2)).setValue(preferred_position);
+  }
+  if(region != data_entry_sheet_values[row_to_edit][region_col_base0])
+  {
+    data_entry_sheet.getRange(region_col_letter + (row_to_edit + 2)).setValue(region);
+  }
 }
 
 /**
  * Record individual player sign up and store to "Data Entry" sheet
+ * @param {bool} record_tiers - Record player tiers permanently
  */
-function RECORD_INDIVIDUAL_SIGN_UP()
+function RECORD_INDIVIDUAL_SIGN_UP(record_tiers=false)
 {
+  Logger.log("RECORD_INDIVIDUAL_SIGN_UP() enter");
   signup_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Individual Sign Ups");
-  signup_sheet_range = signup_sheet.getRange("$A2:C");
+  signup_sheet_range = signup_sheet.getRange("$A$2:$H");
   signup_sheet_values = signup_sheet_range.getValues();
+
+  const name_col_0base = LETTER_TO_INT('B') - 1;
+  const id_col_0base = LETTER_TO_INT('C') - 1;
+  const looking_for_team_col_0base = LETTER_TO_INT('D') - 1;
+  const preferred_position_col_0base = LETTER_TO_INT('E') - 1;
+  const subbing_col_0base = LETTER_TO_INT('F') - 1;
+  const region_col_0base = LETTER_TO_INT('H') - 1;
+
+  let tier_columns = [];
+  if(record_tiers)
+  {
+    signup_sheet_headers = signup_sheet.getRange("$A$1:$H$1");
+    signup_sheet_headers_values = signup_sheet_headers.getValues();
+    let column_number = FIND_COLUMN_HEADER(signup_sheet_headers_values[0], "Sub Tier");
+    if(column_number === null)
+    {
+      throw new Error("Sub Tier column not found.");
+    }
+    tier_columns.push(column_number);
+  }
 
   // iterate over each row in sign ups
   for(let r = 0; r < signup_sheet_range.getNumRows(); r++)
@@ -367,29 +364,50 @@ function RECORD_INDIVIDUAL_SIGN_UP()
     {
       continue;
     }
-    Logger.log("RECORD_INDIVIDUAL_SIGN_UP() signup_sheet_values[" + r + "][2] = " + signup_sheet_values[r][2]);
-    player_name = signup_sheet_values[r][1];
-    player_id = signup_sheet_values[r][2];
-    // add player to data entry list
-    ADD_TO_DATA_ENTRY(player_name, player_id);
+    if(r % 10 == 0)
+    {
+      Logger.log("Updating data entry row = " + r + "...");
+    }
+    // Logger.log("RECORD_INDIVIDUAL_SIGN_UP() signup_sheet_values[" + r + "][id_col_0base] = " + signup_sheet_values[r][id_col_0base]);
+    let player_name = signup_sheet_values[r][name_col_0base];
+    let player_id = signup_sheet_values[r][id_col_0base];
+    let looking_for_team = signup_sheet_values[r][looking_for_team_col_0base];
+    let preferred_position = signup_sheet_values[r][preferred_position_col_0base];
+    let region = signup_sheet_values[r][region_col_0base];
+    let subbing = signup_sheet_values[r][subbing_col_0base];
+  
+    ADD_TO_DATA_ENTRY(player_name, player_id, looking_for_team, preferred_position, region);
+  
+    // record sub tier
+    if(record_tiers)
+    {
+      if(subbing === undefined || subbing == "")
+      {
+        continue;
+      }
+      if(subbing.length > 0)
+      {
+        cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[0] + 1));
+        cell_to_change.setValue(GET_PLAYER_TIER(player_id));
+        Logger.log("Record sub signup: signup_sheet_values[" + r + "][tier_columns[0] = " + cell_to_change.getValues());
+      }
+    }
   }
 }
 
 /**
  * Record team sign up and lock in tier for each player. 
+ * @param {bool} record_tiers - Record player tiers permanently
  */
 function RECORD_TEAM_SIGN_UP(record_tiers=false)
 {
-  player_info_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Player Info");
-  player_info_sheet_range = player_info_sheet.getRange("$A2:L");
-  player_info_sheet_values = player_info_sheet_range.getValues();
-
-  signup_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Team Sign Ups");
+  Logger.log("RECORD_TEAM_SIGN_UP() enter");
+  signup_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("WCS Team Sign Ups");
   signup_sheet_range = signup_sheet.getRange("$A2:L");
   signup_sheet_values = signup_sheet_range.getValues();
 
   let tier_columns = [];
-  signup_sheet_headers = signup_sheet.getRange("$A$1:$M$1");
+  signup_sheet_headers = signup_sheet.getRange("$A$1:$N$1");
   signup_sheet_headers_values = signup_sheet_headers.getValues();
   // iterate each column header to find the tier columns
   for(let c = 0; c < signup_sheet_range.getNumColumns(); c++)
@@ -432,70 +450,20 @@ function RECORD_TEAM_SIGN_UP(record_tiers=false)
 }
 
 /**
- * Record substitute player sign up and lock in their tier. 
- */
-function RECORD_SUB_SIGN_UP(record_tiers=false)
-{
-  player_info_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Player Info");
-  player_info_sheet_range = player_info_sheet.getRange("$A2:L");
-  player_info_sheet_values = player_info_sheet_range.getValues();
-
-  signup_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Sub Sign Ups");
-  signup_sheet_range = signup_sheet.getRange("$A2:E");
-  signup_sheet_values = signup_sheet_range.getValues();
-
-  let tier_columns = [];
-  signup_sheet_headers = signup_sheet.getRange("$A$1:$E$1");
-  signup_sheet_headers_values = signup_sheet_headers.getValues();
-  let column_number = FIND_COLUMN_HEADER(signup_sheet_headers_values[0], "Tier");
-  if(column_number === null)
-  {
-    throw new Error("Sub Tier column not found.");
-  }
-  tier_columns.push(column_number);
-
-  // iterate over each row in sign ups
-  for(let r = 0; r < signup_sheet_range.getNumRows(); r++)
-  {
-    // skip blank rows
-    if(signup_sheet_values[r][0] == "")
-    {
-      continue;
-    }
-
-    for(let p = 0; p < tier_columns.length; p++)
-    {
-      Logger.log("RECORD_SUB_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + signup_sheet_values[r][tier_columns[p]]);
-      if(signup_sheet_values[r][tier_columns[p]] == "")
-      {
-        player_name = signup_sheet_values[r][tier_columns[p] - 2];
-        player_id = signup_sheet_values[r][tier_columns[p] - 1];
-        // also add player to data entry list
-        ADD_TO_DATA_ENTRY(player_name, player_id);
-        if(record_tiers)
-        {
-          cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1));
-          cell_to_change.setValue(GET_PLAYER_TIER(player_id));
-          Logger.log("RECORD_SUB_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
-        }
-      }
-    }
-  }
-}
-
-/**
- * Update all forms, to be used with Trigger.
+ * Update all forms; to be used with Trigger.
  */
 function FORM_UPDATES()
 {
   RECORD_INDIVIDUAL_SIGN_UP()
-  RECORD_SUB_SIGN_UP()
   RECORD_TEAM_SIGN_UP()
+
   UPDATE_PLAYER_API_DATA()
-  // Allow some time for tiers to get calculated
+
+  // Allow time for tiers to get calculated
   Utilities.sleep(10 * 1000);
+
   // log player tiers after api data fetched
-  RECORD_SUB_SIGN_UP(true)
+  RECORD_INDIVIDUAL_SIGN_UP(true)
   RECORD_TEAM_SIGN_UP(true)
 }
 
@@ -538,4 +506,35 @@ function CALCULATE_SEASON_POINTS(game_wins, mvps, result)
   }
 
   return season_points;
+}
+
+/**
+ * Parse Smurf Database string for alt account names
+ * @param {string} smurf_database_string - string containing all API data returned
+ * @return {string} - list of profiles "id: name" comma separated
+ */
+function PARSE_SMURF_DATABASE_STRING(smurf_database_string)
+{
+  if(smurf_database_string === undefined || smurf_database_string == "")
+  {
+    return "";
+  }
+  const re_search_name = new RegExp("(?<=\"name\":\")[^\"]+", "ig");
+  name_matches = Array.from(smurf_database_string.matchAll(re_search_name));
+  if(name_matches === undefined || name_matches.length == 0)
+  {
+    return "";
+  }
+  const re_search_id = new RegExp("(?<=profile_id:\")[^\"]+", "ig");
+  id_matches = Array.from(smurf_database_string.matchAll(re_search_id));
+  if(id_matches === undefined || id_matches.length == 0 || id_matches.length != name_matches.length)
+  {
+    return "";
+  }
+  let retval = "";
+  for(let i = 0; i < name_matches.length; i++)
+  {
+    retval += id_matches[i] + ": " + name_matches[i] + ", ";
+  }
+  return retval;
 }
