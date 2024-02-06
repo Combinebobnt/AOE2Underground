@@ -62,8 +62,8 @@ function UPDATE_PLAYER_API_DATA()
   ratings_sheet_range_values = ratings_sheet_range.getValues();
 
   const column_player_id_0base = LETTER_TO_INT('B') - 1;
-  const column_steam_name = LETTER_TO_INT('D');
-  const column_last = LETTER_TO_INT('J');
+  const column_steam_name = LETTER_TO_INT('D'); // first column to write
+  const column_last = LETTER_TO_INT('K');
   const start_row = 0;
 
   let ids_to_request = [];
@@ -89,6 +89,7 @@ function UPDATE_PLAYER_API_DATA()
     ids_to_request.push(player_id);
     player_info[player_id] = {
       "alias": "",
+      "country": "",
       "1v1_games": 0,
       "1v1_rating": 0,
       "1v1_rating_max": 0,
@@ -139,6 +140,8 @@ function UPDATE_PLAYER_API_DATA()
       stat_id_to_profile_id[group.id] = group.members[0].profile_id;
       // record player alias (steam name)
       player_info[group.members[0].profile_id]["alias"] = group.members[0].alias;
+      // record player country
+      player_info[group.members[0].profile_id]["country"] = group.members[0].country;
     });
 
     // get leaderboard stats for each player
@@ -190,6 +193,7 @@ function UPDATE_PLAYER_API_DATA()
     {
       data_to_write.push([
         player_info[player_id]["alias"],
+        player_info[player_id]["country"],
         player_info[player_id]["1v1_rating"], 
         player_info[player_id]["1v1_rating_max"], 
         player_info[player_id]["tg_rating"], 
@@ -267,19 +271,16 @@ function GET_PLAYER_TIER(player_id)
  * @param {number} id - Player aoe2.net id
  * @param {string} looking_for_team - Player looking for team
  * @param {string} preferred_position - Player preferred position
- * @param {string} region - Player region
  */
-function ADD_TO_DATA_ENTRY(name, id, looking_for_team="", preferred_position="", region="")
+function ADD_TO_DATA_ENTRY(name, id, looking_for_team="", preferred_position="")
 {
   const looking_for_team_col_letter = "$C";
   const looking_for_team_col_base0 = LETTER_TO_INT('C') - 1;
   const preferred_position_col_letter = "$J";
   const preferred_position_col_base0 = LETTER_TO_INT('J') - 1;
-  const region_col_letter = "$K";
-  const region_col_base0 = LETTER_TO_INT('K') - 1;
 
   data_entry_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data Entry");
-  data_entry_sheet_range = data_entry_sheet.getRange("$A$2:" + region_col_letter);
+  data_entry_sheet_range = data_entry_sheet.getRange("$A$2:" + preferred_position_col_letter);
   data_entry_sheet_values = data_entry_sheet_range.getValues();
 
   let add_new = true;
@@ -319,10 +320,6 @@ function ADD_TO_DATA_ENTRY(name, id, looking_for_team="", preferred_position="",
   {
     data_entry_sheet.getRange(preferred_position_col_letter + (row_to_edit + 2)).setValue(preferred_position);
   }
-  if(region != data_entry_sheet_values[row_to_edit][region_col_base0])
-  {
-    data_entry_sheet.getRange(region_col_letter + (row_to_edit + 2)).setValue(region);
-  }
 }
 
 /**
@@ -341,7 +338,6 @@ function RECORD_INDIVIDUAL_SIGN_UP(record_tiers=false)
   const looking_for_team_col_0base = LETTER_TO_INT('D') - 1;
   const preferred_position_col_0base = LETTER_TO_INT('E') - 1;
   const subbing_col_0base = LETTER_TO_INT('F') - 1;
-  const region_col_0base = LETTER_TO_INT('H') - 1;
 
   let tier_columns = [];
   if(record_tiers)
@@ -373,10 +369,9 @@ function RECORD_INDIVIDUAL_SIGN_UP(record_tiers=false)
     let player_id = signup_sheet_values[r][id_col_0base];
     let looking_for_team = signup_sheet_values[r][looking_for_team_col_0base];
     let preferred_position = signup_sheet_values[r][preferred_position_col_0base];
-    let region = signup_sheet_values[r][region_col_0base];
     let subbing = signup_sheet_values[r][subbing_col_0base];
   
-    ADD_TO_DATA_ENTRY(player_name, player_id, looking_for_team, preferred_position, region);
+    ADD_TO_DATA_ENTRY(player_name, player_id, looking_for_team, preferred_position);
   
     // record sub tier
     if(record_tiers)
