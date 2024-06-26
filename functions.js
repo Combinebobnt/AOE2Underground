@@ -68,7 +68,7 @@ function UPDATE_PLAYER_API_DATA()
 
   let ids_to_request = [];
   let player_info = {};
-  const request_base = "https://aoe-api.reliclink.com/community/leaderboard/GetPersonalStat?title=age2&profile_ids=[";
+  const request_base = "https://aoe-api.worldsedgelink.com/community/leaderboard/GetPersonalStat?title=age2&profile_ids=[";
   let request = request_base;
   let requests = [];
 
