@@ -1,4 +1,7 @@
-// code by Combinebobnt for AoE2 Underground ranking system
+// code by Combinebobnt and LilyBear for AoE2 Underground ranking system
+
+let DEFAULT_FORM_ID = "1P_6IY5DayrAvwwPgoPCnAU6aC8LvsSGJ-UW4CKdkIOA"
+let DATA_FORM_ID = "1P_6IY5DayrAvwwPgoPCnAU6aC8LvsSGJ-UW4CKdkIOA"
 
 /**
  * Convert alphabetical letter to a number
@@ -49,6 +52,58 @@ function UPDATE_PLAYER_API_DATA_MANUAL_BUTTON()
   }
   cache.put('already_called', 'YES', 30); // 30 sec cooldown
   UPDATE_PLAYER_API_DATA();
+}
+
+// populates player_info
+function PARSE_API_RESPONSE(responses, player_info) {
+  responses.forEach(function (response, index) {
+    const parsed_json = JSON.parse(response);
+
+    let stat_id_to_profile_id = {};
+
+    parsed_json.statGroups.forEach(function (group, index) {
+      // record api stat id; needed to get leaderboard stats
+      stat_id_to_profile_id[group.id] = group.members[0].profile_id;
+      // record player alias (steam name)
+      player_info[group.members[0].profile_id]["alias"] = group.members[0].alias;
+      // record player country
+      player_info[group.members[0].profile_id]["country"] = group.members[0].country;
+    });
+
+    // get leaderboard stats for each player
+    leaderboards_filtered = parsed_json.leaderboardStats.filter(group => group.leaderboard_id === 3 || group.leaderboard_id === 4);
+    leaderboards_filtered.forEach(function (group, index) {
+      let leaderboard_id = group.leaderboard_id;
+      let stat_id = group.statgroup_id;
+      let profile_id = stat_id_to_profile_id[stat_id];
+      if(leaderboard_id === 3) // 1v1 rm
+      {
+        player_info[profile_id]["1v1_games"] = group.wins + group.losses;
+        player_info[profile_id]["1v1_rating"] = group.rating;
+        if(group.highestrating < group.rating)
+        {
+          player_info[profile_id]["1v1_rating_max"] = group.rating;
+        }
+        else
+        {
+          player_info[profile_id]["1v1_rating_max"] = group.highestrating;
+        }
+      }
+      else if(leaderboard_id === 4) // tg rm
+      {
+        player_info[profile_id]["tg_games"] = group.wins + group.losses;
+        player_info[profile_id]["tg_rating"] = group.rating;
+        if(group.highestrating < group.rating)
+        {
+          player_info[profile_id]["tg_rating_max"] = group.rating;
+        }
+        else
+        {
+          player_info[profile_id]["tg_rating_max"] = group.highestrating;
+        }
+      }
+    });
+  });
 }
 
 /**
@@ -130,54 +185,7 @@ function UPDATE_PLAYER_API_DATA()
 
   Logger.log("Updating player API data...");
 
-  responses.forEach(function (response, index) {
-    const parsed_json = JSON.parse(response);
-
-    let stat_id_to_profile_id = {};
-
-    parsed_json.statGroups.forEach(function (group, index) {
-      // record api stat id; needed to get leaderboard stats
-      stat_id_to_profile_id[group.id] = group.members[0].profile_id;
-      // record player alias (steam name)
-      player_info[group.members[0].profile_id]["alias"] = group.members[0].alias;
-      // record player country
-      player_info[group.members[0].profile_id]["country"] = group.members[0].country;
-    });
-
-    // get leaderboard stats for each player
-    leaderboards_filtered = parsed_json.leaderboardStats.filter(group => group.leaderboard_id === 3 || group.leaderboard_id === 4);
-    leaderboards_filtered.forEach(function (group, index) {
-      let leaderboard_id = group.leaderboard_id;
-      let stat_id = group.statgroup_id;
-      let profile_id = stat_id_to_profile_id[stat_id];
-      if(leaderboard_id === 3) // 1v1 rm
-      {
-        player_info[profile_id]["1v1_games"] = group.wins + group.losses;
-        player_info[profile_id]["1v1_rating"] = group.rating;
-        if(group.highestrating < group.rating)
-        {
-          player_info[profile_id]["1v1_rating_max"] = group.rating;
-        }
-        else
-        {
-          player_info[profile_id]["1v1_rating_max"] = group.highestrating;
-        }
-      }
-      else if(leaderboard_id === 4) // tg rm
-      {
-        player_info[profile_id]["tg_games"] = group.wins + group.losses;
-        player_info[profile_id]["tg_rating"] = group.rating;
-        if(group.highestrating < group.rating)
-        {
-          player_info[profile_id]["tg_rating_max"] = group.rating;
-        }
-        else
-        {
-          player_info[profile_id]["tg_rating_max"] = group.highestrating;
-        }
-      }
-    });
-  });
+  PARSE_API_RESPONSE(responses, player_info)
 
   let data_to_write = [];
   for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++)
@@ -207,19 +215,97 @@ function UPDATE_PLAYER_API_DATA()
   cells_to_change.setValues(data_to_write);
 }
 
+
+
+/**
+ * Update aoe2 API data for a list of specified players in "Automated Ratings"
+ */
+function UPDATE_SPECIFIED_PLAYER_API_DATA(player_ids_to_update) {
+  if (player_ids_to_update.length == 0) {
+    return
+  }
+  Logger.log("[UPDATE_SPECIFIED_PLAYER_API_DATA] for "+player_ids_to_update.toString());
+  ratings_sheet = SpreadsheetApp.openById(DATA_FORM_ID).getSheetByName("Automated Ratings");
+  ratings_sheet_range = ratings_sheet.getRange("$A2:T");
+  ratings_sheet_range_values = ratings_sheet_range.getValues();
+
+  const column_player_id_0base = LETTER_TO_INT('B') - 1;
+  const column_steam_name = LETTER_TO_INT('D'); // first column to write
+  const column_last = LETTER_TO_INT('K');
+  const start_row = 0;
+
+  let player_info = {};
+  const request_base = "https://aoe-api.worldsedgelink.com/community/leaderboard/GetPersonalStat?title=age2&profile_ids=[";
+  let request = request_base;
+
+  let row_to_fill = []
+
+  for(let r = start_row; r < ratings_sheet_range.getNumRows(); r++) {
+    // stop once at blank row
+    if(ratings_sheet_range_values[r][column_player_id_0base] == "")
+    {
+      break;
+    }
+    
+    let player_id = ratings_sheet_range_values[r][column_player_id_0base];
+
+    if (player_ids_to_update.includes(player_id)) {
+      row_to_fill.push([r+2, player_id]); // pair of row and player id, note that row offset is 2 (one for header, one for 0->1 idx)
+      request += "%22" + player_id + "%22,"; // trailing comma works
+      player_info[player_id] = {
+        "alias": "",
+        "country": "",
+        "1v1_games": 0,
+        "1v1_rating": 0,
+        "1v1_rating_max": 0,
+        "tg_games": 0,
+        "tg_rating": 0,
+        "tg_rating_max": 0,
+      };
+    }
+  }
+
+  request += "]";
+  Logger.log("[UPDATE_SPECIFIED_PLAYER_API_DATA] Generated API request "+request);
+  Logger.log("[UPDATE_SPECIFIED_PLAYER_API_DATA] Processing API requests...");
+  let responses = [];
+  responses.push(UrlFetchApp.fetch(request))
+
+  Logger.log("[UPDATE_SPECIFIED_PLAYER_API_DATA] Updating player API data...");
+
+  PARSE_API_RESPONSE(responses, player_info)
+  for (let i = 0; i < row_to_fill.length; i++) {
+    row = row_to_fill[i][0]
+    player_id = row_to_fill[i][1]
+    let data_to_write =  [
+      player_info[player_id]["alias"],
+      player_info[player_id]["country"],
+      player_info[player_id]["1v1_rating"], 
+      player_info[player_id]["1v1_rating_max"], 
+      player_info[player_id]["tg_rating"], 
+      player_info[player_id]["tg_rating_max"], 
+      player_info[player_id]["1v1_games"], 
+      player_info[player_id]["tg_games"], 
+    ]
+    let cells_to_change = ratings_sheet.getRange("R" + row + "C" + column_steam_name + ":R" + row+ "C" + column_last);
+    Logger.log("[UPDATE_SPECIFIED_PLAYER_API_DATA] row " + row + " writing "+data_to_write.join(" "))
+    cells_to_change.setValues([data_to_write]) 
+  }
+}
+
 const ratings = [
-"F", 
-"E", 
-"D", 
-"C", 
-"B", 
-"A", 
-"S", 
-"S+", 
-"S++", 
-"S+++", 
-"S++++", 
-"S+++++"
+"0", 
+"1", 
+"2", 
+"3", 
+"4", 
+"5", 
+"6", 
+"7", 
+"8", 
+"9", 
+"10", 
+"11"
 ];
 
 /**
@@ -249,7 +335,7 @@ function ELOTOTIER(elo, group_size=200, c_tier_rating=1500)
  */
 function GET_PLAYER_TIER(player_id)
 {
-  player_info_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Player Info Extra");
+  player_info_sheet = SpreadsheetApp.openById(DATA_FORM_ID).getSheetByName("Player Info Extra");
   player_info_sheet_range = player_info_sheet.getRange("$A2:J");
   player_info_sheet_values = player_info_sheet_range.getValues();
 
@@ -279,7 +365,7 @@ function ADD_TO_DATA_ENTRY(name, id, looking_for_team="", preferred_position="")
   const preferred_position_col_letter = "$J";
   const preferred_position_col_base0 = LETTER_TO_INT('J') - 1;
 
-  data_entry_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Data Entry");
+  data_entry_sheet = SpreadsheetApp.openById(DATA_FORM_ID).getSheetByName("Data Entry");
   data_entry_sheet_range = data_entry_sheet.getRange("$A$2:" + preferred_position_col_letter);
   data_entry_sheet_values = data_entry_sheet_range.getValues();
 
@@ -390,57 +476,127 @@ function RECORD_INDIVIDUAL_SIGN_UP(record_tiers=false)
   }
 }
 
+
+function RECORD_TEAM_SIGN_UP(tournament_name, sheet_id=DEFAULT_FORM_ID) {
+  tournament_name = "SS3"
+  sign_up_sheet = tournament_name+" Sign Ups"
+  Logger.log("[RECORD_TEAM_SIGN_UP] Begin execution")
+  new_players = RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS (sign_up_sheet, false, sheet_id)
+  Logger.log("[RECORD_TEAM_SIGN_UP] New team with players "+new_players.toString())
+  // add players to data list
+  new_player_ids = []
+  if (new_players.length == 0) {
+    Logger.log("[RECORD_TEAM_SIGN_UP] No new players found, terminating")
+    return
+  }
+  for (let p = 0; p < new_players.length; p++) {
+    player_name = new_players[p][0]
+    player_id = new_players[p][1]
+    new_player_ids.push(player_id)
+    ADD_TO_DATA_ENTRY(player_name, player_id)
+    Logger.log("[RECORD_TEAM_SIGN_UP] Added to DATA ENTRY "+player_name + " id "+player_id)
+  }
+  UPDATE_SPECIFIED_PLAYER_API_DATA(new_player_ids)
+  new_player_info = RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS(sign_up_sheet, true, sheet_id)
+  UPDATE_PLAYER_EXTRA_INFO(tournament_name, new_player_info)
+}
+
+// requires the team header followed by tier, named "[tournament_name] Team", "[tournament_name] Tier"
+function UPDATE_PLAYER_EXTRA_INFO(tournament, new_player_info) {
+  team_header = tournament+" Team"
+  sheet = SpreadsheetApp.openById(DEFAULT_FORM_ID).getSheetByName("Player Info Extra")
+  header_range = sheet.getRange("$A1:CF");
+  header = header_range.getValues()[0]
+  col_header_idx = FIND_COLUMN_HEADER(header, team_header)
+  Logger.log("[UPDATE_PLAYER_EXTRA_INFO] Found header "+team_header+ " at col "+ col_header_idx)
+  sheet_range = sheet.getRange("$A2:CF");
+  vals = sheet_range.getValues()
+  for (let i = 0; i < vals.length; i++) {
+    player_name = vals[i][0]
+    if (player_name in new_player_info) {
+      let cells_to_change = sheet.getRange("R" + i + "C" + (col_header_idx+1)+":R" + i + "C" + (col_header_idx+2))
+      cells_to_change.setValues([new_player_info[player_name]])
+      Logger.log("[UPDATE_PLAYER_EXTRA_INFO] Updated player "+player_name+ " to (team, tier)"+ new_player_info[player_name].toString())
+    }
+  } 
+}
+
+
 /**
- * Record team sign up and lock in tier for each player. 
+ * Record team sign up
+ * The signup sheet must follow the format of columns: timestamp, team name, unused, (player name, player id, tier) f
+ * or 1-4 players, followed by rest
+ * Also the column for team total must be written as "Team Total"
+ * Team Name column fixed
  * @param {bool} record_tiers - Record player tiers permanently
  */
-function RECORD_TEAM_SIGN_UP(record_tiers=false)
+function RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS(active_tournament, record_tiers=false, form_id=DEFAULT_FORM_ID)
 {
-  Logger.log("RECORD_TEAM_SIGN_UP() enter");
-  signup_sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("WCS Team Sign Ups");
-  signup_sheet_range = signup_sheet.getRange("$A2:L");
+  Logger.log("[RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS] " + active_tournament);
+  signup_sheet = SpreadsheetApp.openById(form_id).getSheetByName(active_tournament)
+  signup_sheet_range = signup_sheet.getRange("$A2:Z");
   signup_sheet_values = signup_sheet_range.getValues();
 
   let tier_columns = [];
-  signup_sheet_headers = signup_sheet.getRange("$A$1:$N$1");
+  signup_sheet_headers = signup_sheet.getRange("$A$1:$Z$1");
   signup_sheet_headers_values = signup_sheet_headers.getValues();
   // iterate each column header to find the tier columns
-  for(let c = 0; c < signup_sheet_range.getNumColumns(); c++)
-  {
+  for(let c = 0; c < signup_sheet_range.getNumColumns(); c++) {
     const re_tier = /Tier/i;
     match = signup_sheet_headers_values[0][c].match(re_tier);
-    if(match !== null)
-    {
+    if(match !== null) {
       tier_columns.push(c);
     }
   }
+  let team_name_col = FIND_COLUMN_HEADER(signup_sheet_headers_values[0], "Team Name")
 
+  player_per_team = tier_columns.length
+  if (!record_tiers) {
+    Logger.log("[RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS] Tournament is "+player_per_team+" players per team")
+  }
+
+  let new_players = []
+  let new_team_info = {} // dict of mapping of team name of list of team members + tiers
   // iterate over each row in sign ups
   for(let r = 0; r < signup_sheet_range.getNumRows(); r++)
   {
     // skip blank rows
-    if(signup_sheet_values[r][0] == "")
-    {
+    if(signup_sheet_values[r][0] == "") {
       continue;
     }
-
-    for(let p = 0; p < tier_columns.length; p++)
-    {
-      Logger.log("RECORD_TEAM_SIGN_UP() signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + signup_sheet_values[r][tier_columns[p]]);
-      if(signup_sheet_values[r][tier_columns[p]] == "")
-      {
+    let team_total = 0
+    for(let p = 0; p < tier_columns.length; p++) {
+      if(signup_sheet_values[r][tier_columns[p]] == "") {
         player_name = signup_sheet_values[r][tier_columns[p] - 2];
         player_id = signup_sheet_values[r][tier_columns[p] - 1];
-        // also add player to data entry list
-        ADD_TO_DATA_ENTRY(player_name, player_id);
-        if(record_tiers)
-        {
-          cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1));
+        team_name = signup_sheet_values[r][team_name_col]
+        if (!record_tiers) {
+          Logger.log("[RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS] Found new player "+player_name+" with id "+ player_id +" under team "+team_name)
+          new_players.push([player_name, player_id])
+        } else {
+          cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (tier_columns[p] + 1))
+          let player_tier = GET_PLAYER_TIER(player_id)
+          new_team_info[player_name]=[team_name, player_tier]
+          team_total += player_tier
+          Logger.log("[RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS] Updated tier for "+ player_name + " to " +player_tier)
           cell_to_change.setValue(GET_PLAYER_TIER(player_id));
-          Logger.log("RECORD_TEAM_SIGN_UP() change: signup_sheet_values[" + r + "][tier_columns[" + p + "]] = " + cell_to_change.getValues());
+        }
+
+        if (record_tiers){
+          let team_total_col = FIND_COLUMN_HEADER(signup_sheet_headers_values[0], "Team Total")
+          cell_to_change = signup_sheet.getRange("R" + (r + 2) + "C" + (team_total_col + 1))
+          Logger.log("[RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS] Updated team total to "+team_total)
+          cell_to_change.setValue(team_total);
         }
       }
     }
+
+  }
+  if (!record_tiers) {
+    return new_players
+  } else {
+    Logger.log("[RECORD_TEAM_SIGN_UP_POPULATE_PLAYERS] Returning team info "+JSON.stringify(new_team_info))
+    return new_team_info
   }
 }
 
@@ -449,8 +605,10 @@ function RECORD_TEAM_SIGN_UP(record_tiers=false)
  */
 function FORM_UPDATES()
 {
+  let active_tournament = "KotU Team Sign Ups" // put the name of the spreadsheet for the current tournament
+  let active_format = "1v1"
   RECORD_INDIVIDUAL_SIGN_UP()
-  RECORD_TEAM_SIGN_UP()
+  RECORD_TEAM_SIGN_UP(active_tournament)
 
   UPDATE_PLAYER_API_DATA()
 
@@ -459,7 +617,12 @@ function FORM_UPDATES()
 
   // log player tiers after api data fetched
   RECORD_INDIVIDUAL_SIGN_UP(true)
-  RECORD_TEAM_SIGN_UP(true)
+  RECORD_TEAM_SIGN_UP(active_tournament, true)
+}
+
+function SINGLE_TOURNAMENT_FORM_UPDATE() {
+  Logger.log("begin executing SINGLE_TOURNAMENT_FORM_UPDATE")
+  
 }
 
 /**
